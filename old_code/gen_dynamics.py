@@ -63,9 +63,15 @@ sol_array = np.array(sol_list)
 dynamic_map = {"TimePoints":list(time_array), "Symptomatic":list(sol_array[:,1]),"Asymptomatic":list(np.zeros(len(time_array))),"NonInfected":list(sol_array[:,0]+sol_array[:,2])}
 biasarr = [Bias]*len(time_array)
 
+capacity_map = {}
+for i in [100,500,1000,2500,5000]:
+    capacity_map[str(i)] = [i]*len(time_array)
+
 with open("json_io/dynamics.json","w") as outfile:
     json.dump(dynamic_map, outfile)
 
 with open("json_io/bias.json","w") as outfile:
     json.dump(biasarr,outfile)
-()
+
+with open("json_io/capacity.json","w") as outfile:
+    json.dump(capacity_map,outfile)

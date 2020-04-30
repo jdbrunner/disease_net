@@ -9,6 +9,7 @@ import(
   "time"
   "os"
 	"io/ioutil"
+  "strings"
 )
 
 
@@ -265,13 +266,22 @@ func Avg(arr []float64) float64{
 
 func main(){
   var reportall bool
-  flag.BoolVar(&reportall,"Verbose",false,"whether or print all trials in detail.")
+  flag.BoolVar(&reportall,"Verbose",false,"whether or not to print all trials in detail.")
+
+  var allgo bool
+  flag.BoolVar(&allgo,"ComputePeaks",false,"whether or not to compute peak predictions.")
+
+  var savefl string
+  flag.StringVar(&savefl,"SaveFile","json_io/out","name of save file")
 
   var dynamicsfl string
   flag.StringVar(&dynamicsfl,"Dynamics","",".json file with dynamics saved.")
 
   var testing_bias string
   flag.StringVar(&testing_bias,"TestingBias","",".json file with testing bias saved.")
+
+  var capflnm string
+  flag.StringVar(&capflnm,"TestingCapacities","",".json file with testing capacities saved.")
 
   var falsepositive float64
   flag.Float64Var(&falsepositive,"FalsePositive",0,"False positive test rate")
@@ -309,8 +319,6 @@ func main(){
       fmt.Println("Give Dynamics as .json file.")
   }
 
-  num_timepoints := len(dynamic_sim.TimePoints)
-
   var test_bias []float64
 
   switch fileExists(testing_bias){
@@ -328,7 +336,25 @@ func main(){
       fmt.Println("Give testing bias as .json file.")
   }
 
-  capacities := []float64{100,500,1000,2500,5000}
+  var capacities map[string][]float64
+
+  switch fileExists(capflnm){
+    case true:
+      capfl, mess1 := os.Open(capflnm)
+      if mess1 != nil{
+        fmt.Println(mess1)
+      }
+      capRead, mess2 := ioutil.ReadAll(capfl)
+      if mess1 != nil{
+        fmt.Println(mess2)
+      }
+      json.Unmarshal(capRead,&capacities)
+    case false:
+      fmt.Println("Give testing capacity as .json file.")
+  }
+
+
+  // capacities := []float64{100,500,1000,2500,5000}
 
   var sample_disase Samples
   // var peak_error float64
@@ -336,44 +362,77 @@ func main(){
   pkRes := make(map[string][]PeakSum)
   pkErrs := make(map[string]float64)
 
-  for li := 0; li < len(capacities); li ++{
-    test_caps := make([]float64,num_timepoints)
-    for j := 0; j < len(test_caps); j++{
-      test_caps[j] = capacities[li]
-    }
-    fmt.Println("Avg Tests Per Day:", capacities[li])
-    fmt.Println("\n")
-    smsqerrs := make([]float64,numTri)
-    peakRes := make([]PeakSum,numTri)
-    for trial := 0; trial < numTri; trial ++{
-      sample_disase = GenerateSampleData(dynamic_sim,test_caps,test_bias,falsepositive,falsenegative,daylength)
-      pk1,pk2,pk3 := findPeak_smthD(sample_disase, dynamic_sim, smthness)
-      comp := ComparePeaks(pk1,pk2,pk3,sample_disase)
-      peakRes[trial] = comp
-      smsqerrs[trial] = comp.SumSqDistance
-      if reportall{
-        fmt.Println("Real peaks comes at days:",comp.RealPeaks)
-        fmt.Println("Peaks identified as days",comp.FoundPeaks)
-        fmt.Println("Those peaks found on days",comp.FoundOn)
-        fmt.Println("Sum of square error:", comp.SumSqDistance)
-        fmt.Println("\n")
+  if allgo{
+    for nm,test_caps := range capacities{
+      fmt.Println("Avg Tests Per Day:",nm)
+      fmt.Println("\n")
+      smsqerrs := make([]float64,numTri)
+      peakRes := make([]PeakSum,numTri)
+      for trial := 0; trial < numTri; trial ++{
+        sample_disase = GenerateSampleData(dynamic_sim,test_caps,test_bias,falsepositive,falsenegative,daylength)
+        pk1,pk2,pk3 := findPeak_smthD(sample_disase, dynamic_sim, smthness)
+        comp := ComparePeaks(pk1,pk2,pk3,sample_disase)
+        peakRes[trial] = comp
+        smsqerrs[trial] = comp.SumSqDistance
+        if reportall{
+          fmt.Println("Real peaks comes at days:",comp.RealPeaks)
+          fmt.Println("Peaks identified as days",comp.FoundPeaks)
+          fmt.Println("Those peaks found on days",comp.FoundOn)
+          fmt.Println("Sum of square error:", comp.SumSqDistance)
+          fmt.Println("\n")
+        }
       }
+      avgErr := Avg(smsqerrs)
+      pkRes[nm] = peakRes
+      pkErrs[nm] = avgErr
+      fmt.Println("Average sum-square error:",avgErr)
+      fmt.Println("\n")
+
+      // }
     }
-    avgErr := Avg(smsqerrs)
-    pkRes[fmt.Sprintf("%g",capacities[li])] = peakRes
-    pkErrs[fmt.Sprintf("%g",capacities[li])] = avgErr
-    fmt.Println("Average sum-square error:",avgErr)
-    fmt.Println("\n")
+    Results := FullResults{pkRes,pkErrs}
 
-    // }
+    outfl,err := json.Marshal(Results)
+    if err != nil{
+      fmt.Println("JSON enconding error:",err)
+    }
+
+    var flnm1 string
+    if strings.HasSuffix(savefl,".json"){
+      flnm1 = savefl
+    }else{
+      flnm1 = savefl + ".json"
+    }
+
+    _ = ioutil.WriteFile(flnm1,outfl,0644)
+  }else{
+    Results := make(map[string][]Samples)
+    for nm,test_caps := range capacities{
+      these_results := make([]Samples,numTri)
+      // fmt.Println("Avg Tests Per Day:", nm)
+      // fmt.Println("\n")
+      for trial := 0; trial < numTri; trial ++{
+        sample_disase = GenerateSampleData(dynamic_sim,test_caps,test_bias,falsepositive,falsenegative,daylength)
+        these_results[trial] = sample_disase
+      }
+      Results[nm] = these_results
+
+      // }
+    }
+
+    outfl,err := json.Marshal(Results)
+    if err != nil{
+      fmt.Println("JSON enconding error:",err)
+    }
+
+    var flnm1 string
+
+    if strings.HasSuffix(savefl,".json"){
+      flnm1 = savefl
+    }else{
+      flnm1 = savefl + ".json"
+    }
+
+    _ = ioutil.WriteFile(flnm1,outfl,0644)
   }
-  Results := FullResults{pkRes,pkErrs}
-
-  outfl,err := json.Marshal(Results)
-  if err != nil{
-    fmt.Println("JSON enconding error:",err)
-  }
-
-  _ = ioutil.WriteFile("json_io/test_results.json",outfl,0644)
-
 }
