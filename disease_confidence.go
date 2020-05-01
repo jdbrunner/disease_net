@@ -255,7 +255,7 @@ func ComparePeaks(realpeaks []float64,dataPeaks,PeaksFoundOn[]int, samp Samples)
     return PeakSum{realpeaks,dataPeaksDay,peaksFoundDay,distance,smsqdist}
 
   default:
-    return PeakSum{realpeaks,[]float64{},[]float64{},[]float64{},realpeaks[0]}
+    return PeakSum{realpeaks,[]float64{},[]float64{},[]float64{},0}
   }
 }
 

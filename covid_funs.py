@@ -10,7 +10,7 @@ import json
 
 import matplotlib.pyplot as plt
 
-def gen_jsons(end_time,initial_condtions,dynamics,symptomaticVar,asymptomaticVar,noninfectedVar,params,Bias,maxcapacity,capacityfun = False,tst = 0.01):
+def gen_dynamics(end_time,initial_condtions,dynamics,symptomaticVar,asymptomaticVar,noninfectedVar,params,tst = 0.01):
 
     sir_sol = ode(dynamics)
     sir_sol.set_f_params(params)
@@ -44,6 +44,12 @@ def gen_jsons(end_time,initial_condtions,dynamics,symptomaticVar,asymptomaticVar
 
     dynamic_map = {"TimePoints":list(time_array), "Symptomatic":list(Symptomatic),"Asymptomatic":list(Asymptomatic),"NonInfected":list(NonInfected)}
 
+    return dynamic_map
+
+def gen_jsons(folder,dynamic_map,Bias,maxcapacity,capacityfun = False):
+
+    time_array = dynamic_map["TimePoints"]
+
     if callable(Bias):
         biasarr = [Bias(t) for t in time_array]
     elif np.isscalar(Bias):
@@ -64,17 +70,17 @@ def gen_jsons(end_time,initial_condtions,dynamics,symptomaticVar,asymptomaticVar
             capacity_map[str(i)] = [i]*len(time_array)
 
 
-    with open("json_io/dynamics.json","w") as outfile:
+    with open(folder+"/dynamics.json","w") as outfile:
         json.dump(dynamic_map, outfile)
 
-    with open("json_io/bias.json","w") as outfile:
+    with open(folder+"/bias.json","w") as outfile:
         json.dump(biasarr,outfile)
 
-    with open("json_io/capacity.json","w") as outfile:
+    with open(folder+"/capacity.json","w") as outfile:
         json.dump(capacity_map,outfile)
 
+    return None
 
-    return dynamic_map
 
 
 def fit_slope(full_y,window,*argv):
