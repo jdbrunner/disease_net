@@ -26,6 +26,27 @@ type Samples struct{
   DayTimes []float64
 }
 
+type Recall struct{
+  Peak float64
+  Found bool
+  FoundOn []float64
+  FoundAs []float64
+}
+
+type Precision struct{
+  Peak float64
+  Real bool
+  FoundOn float64
+  SqDist float64
+}
+
+type DataPerformance struct{
+  Precisions []Precision
+  Recalls []Recall
+  Capacity []float64
+  Sample Samples
+}
+
 type PeakSum struct{
   RealPeaks []float64
   FoundPeaks []float64
@@ -37,6 +58,7 @@ type PeakSum struct{
 type FullResults struct{
   Peaks map[string][]PeakSum
   SumSqDistance map[string]float64
+  Performance map[string][]DataPerformance
 }
 
 func fileExists(filename string) bool {
@@ -190,16 +212,6 @@ func findPeak_smthD(samp Samples, realdyn Dynamics, smoothing float64) ([]float6
     }
   }
 
-  // dataPeaks := make([]float64,len(dataPeaksIndx))
-  // for i,val := range dataPeaksIndx{
-  //   dataPeaks[i] = samp.DayTimes[val]
-  // }
-  //
-  // peaksFound := make([]float64, len(foundOnIndx))
-  // for i,val := range foundOnIndx{
-  //   peaksFound[i] = samp.DayTimes[val]
-  // }
-
   return realpeaktime,dataPeaksIndx,foundOnIndx
 }
 
@@ -247,6 +259,45 @@ func ComparePeaks(realpeaks []float64,dataPeaks,PeaksFoundOn[]int, samp Samples)
   }
 }
 
+func Was_Found(val float64,datpeaks []float64,pksfoundon []float64, tol float64) (bool,[]float64,[]float64){
+  fnd := false
+  var fndon []float64
+  var fndas []float64
+  for i,fpk := range datpeaks{
+    if math.Pow(fpk-val,2) < math.Pow(tol,2){
+      fnd = true
+      fndon = append(fndon,pksfoundon[i])
+      fndas = append(fndas,fpk)
+    }
+  }
+  return fnd,fndon,fndas
+}
+
+func IsItReal(val float64, rlpks []float64, tol float64) bool{
+  ret := false
+  for _,pk := range rlpks{
+    if math.Pow(pk-val,2) < math.Pow(tol,2){
+      ret = true
+    }
+  }
+  return ret
+}
+
+func Performance(peaks PeakSum,tol float64) ([]Precision,[]Recall){
+  rlpkslc := make([]Recall,len(peaks.RealPeaks))
+  for i,val := range peaks.RealPeaks{
+    fnd,fndon,fndas := Was_Found(val,peaks.FoundPeaks,peaks.FoundOn,tol)
+    rlpkslc[i] = Recall{val,fnd,fndon,fndas}
+  }
+
+  datpkslc := make([]Precision,len(peaks.FoundPeaks))
+  for i,val := range peaks.FoundPeaks{
+    fnd := IsItReal(val,peaks.RealPeaks,tol)
+    datpkslc[i] = Precision{val,fnd,peaks.FoundOn[i],peaks.Distances[i]}
+  }
+  return datpkslc,rlpkslc
+}
+
 func SumSqs(arr []float64) float64{
   var smsq float64
   for _,val := range arr{
@@ -269,7 +320,7 @@ func main(){
   flag.BoolVar(&reportall,"Verbose",false,"whether or not to print all trials in detail.")
 
   var allgo bool
-  flag.BoolVar(&allgo,"ComputePeaks",false,"whether or not to compute peak predictions.")
+  flag.BoolVar(&allgo,"ComputePeaks",true,"whether or not to compute peak predictions.")
 
   var savefl string
   flag.StringVar(&savefl,"SaveFile","json_io/out","name of save file")
@@ -288,6 +339,9 @@ func main(){
 
   var falsenegative float64
   flag.Float64Var(&falsenegative,"FalseNegative",0,"False negative test rate")
+
+  var ptol float64
+  flag.Float64Var(&ptol,"PeakTol",2,"Tolerance for peak prediction.")
 
   var daylength float64
   flag.Float64Var(&daylength,"Interval",1,"Length of data bucket intervals")
@@ -363,15 +417,20 @@ func main(){
   pkErrs := make(map[string]float64)
 
   if allgo{
+    AllPerformance := make(map[string][]DataPerformance)
     for nm,test_caps := range capacities{
       fmt.Println("Avg Tests Per Day:",nm)
       fmt.Println("\n")
       smsqerrs := make([]float64,numTri)
       peakRes := make([]PeakSum,numTri)
+      performance := make([]DataPerformance,numTri)
       for trial := 0; trial < numTri; trial ++{
         sample_disase = GenerateSampleData(dynamic_sim,test_caps,test_bias,falsepositive,falsenegative,daylength)
         pk1,pk2,pk3 := findPeak_smthD(sample_disase, dynamic_sim, smthness)
         comp := ComparePeaks(pk1,pk2,pk3,sample_disase)
+        prec,rec := Performance(comp,ptol)
+        perf := DataPerformance{prec,rec,test_caps,sample_disase}
+        performance[trial] = perf
         peakRes[trial] = comp
         smsqerrs[trial] = comp.SumSqDistance
         if reportall{
@@ -382,6 +441,7 @@ func main(){
           fmt.Println("\n")
         }
       }
+      AllPerformance[nm] = performance
       avgErr := Avg(smsqerrs)
       pkRes[nm] = peakRes
       pkErrs[nm] = avgErr
@@ -390,7 +450,7 @@ func main(){
 
       // }
     }
-    Results := FullResults{pkRes,pkErrs}
+    Results := FullResults{pkRes,pkErrs,AllPerformance}
 
     outfl,err := json.Marshal(Results)
     if err != nil{
