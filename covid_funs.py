@@ -77,81 +77,65 @@ def gen_jsons(end_time,initial_condtions,dynamics,symptomaticVar,asymptomaticVar
     return dynamic_map
 
 
-def mysmooth(y,sigmasq,x = []):
-    if len(x) != len(y):
+def fit_slope(full_y,window,*argv):
+
+    y = full_y[window[0]:window[1]]
+
+    if len(argv):
+        x = argv[0][window[0]:window[1]]
+    else:
         x = np.ones(len(y))
-    smthd = np.empty(len(y))
-    for i in range(len(x)):
-        sm = 0
-        for j in range(len(y)):
-            sm += (y[j]/(np.sqrt(2*np.pi)*sigmasq))*np.exp(-((x[i]-x[j])**2)/(2*sigmasq))
-        smthd[i] = sm
-    return smthd
 
 
-def cross_zero(arr):
-    indx = []
-    for i in range(1,len(arr)):
-        if arr[i-1]>0 and arr[i]< 0:
-            indx += [i]
-    return indx
+    A = np.vstack([x, np.ones(len(x))]).T
+    m, c = np.linalg.lstsq(A, y, rcond=None)[0]
 
-def findPeak_smth(real_dynamics,sample,smoothing = 2):
-    total_infected = np.array(real_dynamics['Symptomatic']) + np.array(real_dynamics['Asymptomatic'])
-    realDiff = np.diff(total_infected)/np.diff(real_dynamics['TimePoints'])
+    return m
 
-    real_peaks = cross_zero(realDiff)
-    real_peak_vals = np.array(real_dynamics['TimePoints'])[real_peaks]
-    rlpk_map = {}
-    for i in range(len(real_peaks)):
-        rlpk_map["R"+str(i)] = real_dynamics['TimePoints'][real_peaks[i]]
+def find_trend(data,times,twindow):
+    data = np.array(data)
+    times = np.array(times)
+    #get index
+    if twindow[1] < times[-1]:
+        indx1 = np.argwhere(twindow[0] <= times)[0,0]
+        indx2 = np.argwhere(twindow[1] <= times)[0,0]
+    elif twindow[0]<times[-1]:
+        indx1 = np.argwhere(twindow[0] <= times)[0,0]
+        indx2 = len(times)
+    else:
+        print("No data in window")
+        return None
 
-    sample_ratio = np.array(sample["DailyPositive"])/np.array(sample["DailyTotal"])
-    sampleDiff =  np.diff(sample_ratio)/np.diff(sample["DayTimes"])
+    trend = fit_slope(data,[indx1,indx2],times)
 
-    dataPeakIndx = []
-    foundOnIndx = []
-    for i in range(21,len(sample_ratio)):
-        tempPk = cross_zero(mysmooth(sampleDiff[:i-1],smoothing,x = sample["DayTimes"][1:i]))
-        if len(tempPk) > 0:
-            dataPeakIndx += [tempPk[-1] - 1]
-            foundOnIndx += [i]
+    return trend
 
-    peaks_found = np.array(sample["DayTimes"])[dataPeakIndx]
-    found_on_day = np.array(sample["DayTimes"])[foundOnIndx]
+def test_all_windows(data,times,windowsize,start = 0):
+    window_trend = []
+    window_ending = []
 
+    t = start
 
-    return real_peak_vals,rlpk_map,peaks_found,found_on_day
+    while t<times[-1]:
+        window_trend += [find_trend(data,times,[t,t+windowsize])]
+        window_ending += [t+windowsize]
+        t += windowsize
 
+    return np.array(window_trend),np.array(window_ending)
 
-def judge_peaks(method,real_dynamics,sample,tol = 2,**kwargs):
+def trendError(realTrends,sampleTrends):
+    realTrends = realTrends[:len(sampleTrends)]
+    sq_error = (np.array(realTrends) - np.array(sampleTrends))**2
+    rt_mn_sq_error =np.sqrt(sum(sq_error)/len(realTrends))
+    prod = np.array(realTrends)*np.array(sampleTrends)
+    same_sign_prob = sum([p > 0 for p in prod])/len(realTrends)
+    return sq_error,rt_mn_sq_error,same_sign_prob
 
-    real_peak_vals,rlpk_map,peaks_found,found_on_day = method(real_dynamics,sample,**kwargs)
-
-    recall = {}
-    for ky,val in rlpk_map.items():
-        mp = {"Peak":val,"Found":False,"On":[],"As":[]}
-        sqdist = (peaks_found - val)**2
-        didfind = np.where(sqdist < tol**2)
-        if len(didfind[0]):
-            mp["Found"] = True
-            mp["On"] = found_on_day[didfind]
-            mp["As"] = peaks_found[didfind]
-        recall[ky] = mp
-
-    precision = {}
-    for i in range(len(peaks_found)):
-        val = peaks_found[i]
-        prv_found = [ky for ky in precision.keys() if precision[ky]["Peak"] == val]
-        if len(prv_found) == 0:
-            mp = {"Peak":val,"Real":False,"FoundOn":[found_on_day[i]]}
-            sqdist = (real_peak_vals - val)**2
-            didfind = np.where(sqdist < tol**2)
-            mp["SqDist"] = min(sqdist)
-            if len(didfind[0]):
-                mp["Real"] = True
-            precision["D" + str(i)] = mp
-        else:
-            precision[prv_found[0]]["FoundOn"] += [found_on_day[i]]
-
-    return recall,precision
+def trendConfidence(samplevals,sampletimes,realvals,realtimes,windowsize):
+    real_trend,_ = test_all_windows(realvals,realtimes,windowsize)
+    tot = 0
+    for i in range(len(samplevals)):
+        samp_trend,_ = test_all_windows(samplevals[i],sampletimes[i],windowsize)
+        _,_,conf = trendError(real_trend,samp_trend)
+        tot += conf
+    return tot/len(samplevals)

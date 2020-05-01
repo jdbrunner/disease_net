@@ -8,6 +8,87 @@ from scipy.ndimage import gaussian_filter1d as smooth
 
 import matplotlib.pyplot as plt
 
+
+def mysmooth(y,sigmasq,x = []):
+    if len(x) != len(y):
+        x = np.ones(len(y))
+    smthd = np.empty(len(y))
+    for i in range(len(x)):
+        sm = 0
+        for j in range(len(y)):
+            sm += (y[j]/(np.sqrt(2*np.pi)*sigmasq))*np.exp(-((x[i]-x[j])**2)/(2*sigmasq))
+        smthd[i] = sm
+    return smthd
+
+
+def cross_zero(arr):
+    indx = []
+    for i in range(1,len(arr)):
+        if arr[i-1]>0 and arr[i]< 0:
+            indx += [i]
+    return indx
+
+def findPeak_smth(real_dynamics,sample,smoothing = 2):
+    total_infected = np.array(real_dynamics['Symptomatic']) + np.array(real_dynamics['Asymptomatic'])
+    realDiff = np.diff(total_infected)/np.diff(real_dynamics['TimePoints'])
+
+    real_peaks = cross_zero(realDiff)
+    real_peak_vals = np.array(real_dynamics['TimePoints'])[real_peaks]
+    rlpk_map = {}
+    for i in range(len(real_peaks)):
+        rlpk_map["R"+str(i)] = real_dynamics['TimePoints'][real_peaks[i]]
+
+    sample_ratio = np.array(sample["DailyPositive"])/np.array(sample["DailyTotal"])
+    sampleDiff =  np.diff(sample_ratio)/np.diff(sample["DayTimes"])
+
+    dataPeakIndx = []
+    foundOnIndx = []
+    for i in range(21,len(sample_ratio)):
+        tempPk = cross_zero(mysmooth(sampleDiff[:i-1],smoothing,x = sample["DayTimes"][1:i]))
+        if len(tempPk) > 0:
+            dataPeakIndx += [tempPk[-1] - 1]
+            foundOnIndx += [i]
+
+    peaks_found = np.array(sample["DayTimes"])[dataPeakIndx]
+    found_on_day = np.array(sample["DayTimes"])[foundOnIndx]
+
+
+    return real_peak_vals,rlpk_map,peaks_found,found_on_day
+
+
+def judge_peaks(method,real_dynamics,sample,tol = 2,**kwargs):
+
+    real_peak_vals,rlpk_map,peaks_found,found_on_day = method(real_dynamics,sample,**kwargs)
+
+    recall = {}
+    for ky,val in rlpk_map.items():
+        mp = {"Peak":val,"Found":False,"On":[],"As":[]}
+        sqdist = (peaks_found - val)**2
+        didfind = np.where(sqdist < tol**2)
+        if len(didfind[0]):
+            mp["Found"] = True
+            mp["On"] = found_on_day[didfind]
+            mp["As"] = peaks_found[didfind]
+        recall[ky] = mp
+
+    precision = {}
+    for i in range(len(peaks_found)):
+        val = peaks_found[i]
+        prv_found = [ky for ky in precision.keys() if precision[ky]["Peak"] == val]
+        if len(prv_found) == 0:
+            mp = {"Peak":val,"Real":False,"FoundOn":[found_on_day[i]]}
+            sqdist = (real_peak_vals - val)**2
+            didfind = np.where(sqdist < tol**2)
+            mp["SqDist"] = min(sqdist)
+            if len(didfind[0]):
+                mp["Real"] = True
+            precision["D" + str(i)] = mp
+        else:
+            precision[prv_found[0]]["FoundOn"] += [found_on_day[i]]
+
+    return recall,precision
+
+
 def linear_interp(t,time_array,value_array):
     time_where= np.argwhere(time_array > t)
     if len(time_where):

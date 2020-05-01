@@ -44,7 +44,6 @@ type DataPerformance struct{
   Precisions []Precision
   Recalls []Recall
   Capacity []float64
-  Sample Samples
 }
 
 type PeakSum struct{
@@ -59,6 +58,7 @@ type FullResults struct{
   Peaks map[string][]PeakSum
   SumSqDistance map[string]float64
   Performance map[string][]DataPerformance
+  SimulatedData map[string][]Samples
 }
 
 func fileExists(filename string) bool {
@@ -418,21 +418,24 @@ func main(){
 
   if allgo{
     AllPerformance := make(map[string][]DataPerformance)
+    Allsamps := make(map[string][]Samples)
     for nm,test_caps := range capacities{
-      fmt.Println("Avg Tests Per Day:",nm)
-      fmt.Println("\n")
+      // fmt.Println("Avg Tests Per Day:",nm)
+      // fmt.Println("\n")
       smsqerrs := make([]float64,numTri)
       peakRes := make([]PeakSum,numTri)
       performance := make([]DataPerformance,numTri)
+      samps := make([]Samples,numTri)
       for trial := 0; trial < numTri; trial ++{
         sample_disase = GenerateSampleData(dynamic_sim,test_caps,test_bias,falsepositive,falsenegative,daylength)
         pk1,pk2,pk3 := findPeak_smthD(sample_disase, dynamic_sim, smthness)
         comp := ComparePeaks(pk1,pk2,pk3,sample_disase)
         prec,rec := Performance(comp,ptol)
-        perf := DataPerformance{prec,rec,test_caps,sample_disase}
+        perf := DataPerformance{prec,rec,test_caps}
         performance[trial] = perf
         peakRes[trial] = comp
         smsqerrs[trial] = comp.SumSqDistance
+        samps[trial] = sample_disase
         if reportall{
           fmt.Println("Real peaks comes at days:",comp.RealPeaks)
           fmt.Println("Peaks identified as days",comp.FoundPeaks)
@@ -445,12 +448,13 @@ func main(){
       avgErr := Avg(smsqerrs)
       pkRes[nm] = peakRes
       pkErrs[nm] = avgErr
-      fmt.Println("Average sum-square error:",avgErr)
-      fmt.Println("\n")
+      Allsamps[nm] = samps
+      // fmt.Println("Average sum-square error:",avgErr)
+      // fmt.Println("\n")
 
       // }
     }
-    Results := FullResults{pkRes,pkErrs,AllPerformance}
+    Results := FullResults{pkRes,pkErrs,AllPerformance,Allsamps}
 
     outfl,err := json.Marshal(Results)
     if err != nil{
