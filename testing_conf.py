@@ -9,45 +9,20 @@ import shlex
 import os
 
 
-fldername = "periodic"
+fldername = "BiasSIRPop1000"
 try:
     os.mkdir(fldername)
 except:
     None
 
 
-#from https://www.endpoint.com/blog/2015/01/28/getting-realtime-output-using-python
-def run_command(command):
-    process = subprocess.Popen(shlex.split(command), stdout=subprocess.PIPE, stderr = subprocess.STDOUT, text = False)
-    outlist = []
-    while True:
-        output = process.stdout.readline()
-        outlist += [output]
-        if output.decode("utf-8") == '' and process.poll() is not None:
-            break
-        if output:
-            if '\r' in output.decode("utf-8"):
-
-                sys.stdout.write('\r' + output.decode("utf-8").strip())
-            else:
-                sys.stdout.write(output.decode("utf-8"))
-    rc = process.poll()
-    return rc,outlist
 
 
-Bias = 1 #Bias = 1 means no bias. Higher puts bias towards testing symptomatic individuals.
+
+Bias = 10 #Bias = 1 means no bias. Higher puts bias towards testing symptomatic individuals.
 capacities = [100,300,900,2700,8100]
 
-def SIR_model(t,X,params):
-    s,i,r= X
-    beta,recrate = params
-    if callable(beta):
-        dsdt = -(beta(s,i,r,t))*s*i
-    else:
-        dsdt = -beta*s*i
-    didt = -dsdt - recrate*i
-    drdt = recrate*i
-    return [dsdt,didt,drdt]
+
 
 timescale = 15 #1/gamma
 
@@ -62,15 +37,15 @@ R0 = 2.2
 
 end_time = 100
 
-time = np.arange(0,end_time,0.01)
-Symptomatic = 0.1*np.sin(time/5) + 0.2
-Asymptomatic = np.zeros(len(time))
-NonInfected = 1 - Symptomatic
+# time = np.arange(0,end_time,0.01)
+# Symptomatic = 0.1*np.sin(time/5) + 0.2
+# Asymptomatic = np.zeros(len(time))
+# NonInfected = 1 - Symptomatic
 
 
-dynamics = {"TimePoints":list(time), "Symptomatic":list(Symptomatic),"Asymptomatic":list(Asymptomatic),"NonInfected":list(NonInfected)}
+# dynamics = {"TimePoints":list(time), "Symptomatic":list(Symptomatic),"Asymptomatic":list(Asymptomatic),"NonInfected":list(NonInfected)}
 
-#covid_funs.gen_dynamics(end_time,[s0,i0,r0],SIR_model,1,-1,[0,2],[R0/timescale,1/timescale])
+dynamics = covid_funs.gen_dynamics(end_time,[s0,i0,r0],covid_funs.SIR_model,1,-1,[0,2],[R0/timescale,1/timescale])
 
 covid_funs.gen_jsons(fldername,dynamics,Bias,capacities)
 
@@ -81,10 +56,11 @@ dynamicsfl = fldername+"/dynamics.json"
 biasfl = fldername+"/bias.json"
 capfl = fldername+"/capacity.json"
 num_trials = 100
-falsePos = 0.1
-falseNeg = 0.1
+falsePos = 0
+falseNeg = 0
 smth = 5
 peak_tol = 3
+popsize = 1000
 
 base_command = "./disease_confidence"
 opts = ["-Dynamics="+dynamicsfl]
@@ -96,13 +72,16 @@ opts +=["-FalsePositive="+str(falsePos)]
 opts +=["-FalseNegative="+str(falseNeg)]
 opts +=["-Smoothing="+str(smth)]
 opts +=["-PeakTol="+str(peak_tol)]
+opts +=["-TotalPop="+str(popsize)]
 
 
 full_command = base_command + " " + " ".join(opts)
-so = run_command(full_command)
+so = covid_funs.run_command(full_command)
 
 with open(svfl) as fl:
     results = json.load(fl)
+
+
 
 
 pos_prop = {}
@@ -110,7 +89,7 @@ for ky in results["SimulatedData"]:
     smps = []
     times = []
     for sample in results["SimulatedData"][ky]:
-        smps += [np.array(sample["DailyPositive"])/np.array(sample["DailyTotal"])]
+        smps += [np.array(sample["DailyPositive"])/np.maximum(1,np.array(sample["DailyTotal"]))]
         times += [np.array(sample["DayTimes"])]
     pos_prop[ky] = (smps,times)
 
@@ -138,21 +117,30 @@ with open(fldername+"/five_day_conf.json","w") as outfile:
 
 recall = {}
 for ky,val in results["Performance"].items():
-    recall[ky] = sum([pk["Found"] for dyn in val for  pk in dyn["Recalls"]])/sum([len(v["Recalls"]) for v in val])
+    if sum([len(v["Recalls"]) for v in val]):
+        recall[ky] = sum([pk["Found"] for dyn in val for  pk in dyn["Recalls"]])/sum([len(v["Recalls"]) for v in val])
+    else:
+        recall[ky] = 0
 
 with open(fldername+"/recall.json","w") as outfile:
     json.dump(recall, outfile)
 
 precision = {}
 for ky,val in results["Performance"].items():
-    precision[ky] = sum([pk["Real"] for dyn in val for  pk in dyn["Precisions"]])/sum([len(v["Precisions"]) for v in val])
+    if sum([len(v["Precisions"]) for v in val]):
+        precision[ky] = sum([pk["Real"] for dyn in val for  pk in dyn["Precisions"]])/sum([len(v["Precisions"]) for v in val])
+    else:
+        precision[ky] = 0
 
 with open(fldername+"/precision.json","w") as outfile:
     json.dump(precision, outfile)
 
 mean_sq_error = {}
 for ky,val in results["Performance"].items():
-    mean_sq_error[ky] =[(sum([(pk["SqDist"])**2 for pk in dyn["Precisions"]])/len(dyn["Precisions"]))**(1/2) for dyn in val]
+    if sum([len(v["Precisions"]) for v in val]):
+        mean_sq_error[ky] =[(sum([(pk["SqDist"])**2 for pk in dyn["Precisions"]])/len(dyn["Precisions"]))**(1/2) for dyn in val]
+    else:
+        mean_sq_error[ky] = 0
 
 with open(fldername+"/mean_sq_error.json","w") as outfile:
     json.dump(mean_sq_error, outfile)

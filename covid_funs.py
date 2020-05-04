@@ -3,6 +3,10 @@ from scipy.integrate import cumtrapz
 from scipy.integrate import ode
 from numpy.random import exponential as exp
 from numpy.random import rand
+
+import subprocess
+import sys
+import shlex
 # from scipy.ndimage import gaussian_filter1d as smooth
 import json
 
@@ -145,3 +149,33 @@ def trendConfidence(samplevals,sampletimes,realvals,realtimes,windowsize):
         _,_,conf = trendError(real_trend,samp_trend)
         tot += conf
     return tot/len(samplevals)
+
+
+#from https://www.endpoint.com/blog/2015/01/28/getting-realtime-output-using-python
+def run_command(command):
+    process = subprocess.Popen(shlex.split(command), stdout=subprocess.PIPE, stderr = subprocess.STDOUT, text = False)
+    outlist = []
+    while True:
+        output = process.stdout.readline()
+        outlist += [output]
+        if output.decode("utf-8") == '' and process.poll() is not None:
+            break
+        if output:
+            if '\r' in output.decode("utf-8"):
+
+                sys.stdout.write('\r' + output.decode("utf-8").strip())
+            else:
+                sys.stdout.write(output.decode("utf-8"))
+    rc = process.poll()
+    return rc,outlist
+
+def SIR_model(t,X,params):
+    s,i,r= X
+    beta,recrate = params
+    if callable(beta):
+        dsdt = -(beta(s,i,r,t))*s*i
+    else:
+        dsdt = -beta*s*i
+    didt = -dsdt - recrate*i
+    drdt = recrate*i
+    return [dsdt,didt,drdt]

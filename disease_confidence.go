@@ -79,6 +79,19 @@ func max(arr []float64) float64{
   return mx
 }
 
+func Adjust(raise,lower,N float64) (float64,float64){
+
+  total := raise + lower
+
+  x := raise + 1/N
+  y := lower - 1/N
+  if y<0{
+    y =  0
+    x = total
+  }
+  return x,y
+}
+
 func Missing(slice []int, val int) bool {
     for _, item := range slice {
         if item == val {
@@ -171,6 +184,149 @@ func GenerateSampleData(dynamics Dynamics, sample_capacity []float64, sample_bia
       }
 
       dt = rand.ExpFloat64()/max_lam
+      simTime += dt
+    }
+    PosDay[i] = positive_interval
+    TotDay[i] = tests_interval
+  }
+  return Samples{PosDay,TotDay,IntervalStart}
+}
+
+func GenerateSampleDataLimPop(dynamics Dynamics, sample_capacity []float64, sample_bias []float64, falsePos, falseNeg float64,interval float64,totalPop float64, retest float64) Samples{
+  dynLen := len(dynamics.TimePoints)
+  num_intervals := int(dynamics.TimePoints[dynLen-1]/interval) + 1
+  PosDay := make([]float64,num_intervals)
+  TotDay := make([]float64,num_intervals)
+  IntervalStart := make([]float64,num_intervals)
+  max_lam := max(sample_capacity)
+  simTime := rand.ExpFloat64()/max_lam
+
+
+
+  var dt float64
+  var tests_interval float64
+  var positive_interval float64
+  var totLam float64
+  var lam1 float64
+  var lam12 float64
+  var lam2 float64
+  var alpha1 float64
+  var alpha2 float64
+  var alpha3 float64
+
+
+  SymptTested := 0.0
+  AsymptTested := 0.0
+  NonInfTested := 0.0
+
+  SymptNot := dynamics.Symptomatic[0]
+  AsymptNot := dynamics.Asymptomatic[0]
+  NonInfNot := dynamics.NonInfected[0]
+
+  prevSympt := dynamics.Symptomatic[0]
+  prevAsympt := dynamics.Asymptomatic[0]
+  prevNInf := dynamics.NonInfected[0]
+
+  for i := 0; i<num_intervals; i++{
+    tests_interval = 0.0
+    positive_interval = 0.0
+    IntervalStart[i] = float64(i)*interval
+    for simTime < float64((i+1))*interval{
+      indx := getTimeIndex(dynamics.TimePoints,simTime)
+
+      if prevSympt >0{
+        SymptNot = (SymptNot/prevSympt)*(dynamics.Symptomatic[indx])
+        SymptTested = (SymptTested/prevSympt)*(dynamics.Symptomatic[indx])
+        prevSympt = dynamics.Symptomatic[indx]
+      }else{
+        SymptNot = dynamics.Symptomatic[indx]
+        SymptTested = 0
+        prevSympt = dynamics.Symptomatic[indx]
+      }
+
+      if prevAsympt > 0{
+        AsymptNot = (AsymptNot/prevAsympt)*(dynamics.Asymptomatic[indx])
+        AsymptTested = (AsymptTested/prevAsympt)*(dynamics.Asymptomatic[indx])
+        prevAsympt = dynamics.Asymptomatic[indx]
+      }else{
+        AsymptNot = dynamics.Asymptomatic[indx]
+        AsymptTested = 0
+        prevAsympt = dynamics.Asymptomatic[indx]
+      }
+
+      if prevNInf > 0{
+        NonInfNot = (NonInfNot/prevNInf)*(dynamics.NonInfected[indx])
+        NonInfTested = (NonInfTested/prevNInf)*(dynamics.NonInfected[indx])
+        prevNInf = dynamics.NonInfected[indx]
+      }else{
+        NonInfNot = dynamics.NonInfected[indx]
+        NonInfTested = 0
+        prevNInf = dynamics.NonInfected[indx]
+      }
+
+      BiasN := sample_bias[indx]*SymptNot + AsymptNot + NonInfNot
+
+      if BiasN > 0{
+        lam1 = sample_capacity[indx]*(sample_bias[indx]*SymptNot)/BiasN
+        lam12 = sample_capacity[indx]*AsymptNot/BiasN
+        lam2 = sample_capacity[indx]*NonInfNot/BiasN
+      }else{
+        lam1 = 0
+        lam12 = 0
+        lam2 = 0
+      }
+
+      alpha1 = retest*SymptTested*totalPop
+      alpha2 = retest*AsymptTested*totalPop
+      alpha3 = retest*NonInfTested*totalPop
+
+      totLam = lam1 + lam12 + lam2 + alpha1 + alpha2 + alpha3
+
+      // fmt.Println(SymptTested,AsymptTested,NonInfTested)
+
+
+      u := rand.Float64()
+
+      switch{
+      case u < (falseNeg*lam1)/totLam://false negative, symptomaitc
+        tests_interval += 1.0
+        SymptTested,SymptNot = Adjust(SymptTested,SymptNot,totalPop)
+
+      case u < (lam1/totLam)://true positive, symptomaitc
+        tests_interval += 1.0
+        positive_interval += 1.0
+        SymptTested,SymptNot = Adjust(SymptTested,SymptNot,totalPop)
+
+      case u < (falseNeg*lam12 + lam1)/totLam://false negative, Asymptomaitc
+        tests_interval += 1.0
+        AsymptTested,AsymptNot = Adjust(AsymptTested,AsymptNot,totalPop)
+
+      case u < ((lam1+lam12)/totLam)://true positive, Asymptomaitc
+        tests_interval += 1.0
+        positive_interval += 1.0
+        AsymptTested,AsymptNot = Adjust(AsymptTested,AsymptNot,totalPop)
+
+      case u < (lam1 + lam12 + falsePos*lam2)/totLam://false positive
+        tests_interval += 1.0
+        positive_interval += 1.0
+        NonInfTested,NonInfNot = Adjust(NonInfTested,NonInfNot,totalPop)
+
+      case u < (lam1 + lam12 + lam2)/totLam://true negative
+        tests_interval += 1.0
+        NonInfTested,NonInfNot = Adjust(NonInfTested,NonInfNot,totalPop)
+
+      case u < (lam1 + lam12 + lam2 + alpha1)/totLam:
+        SymptNot,SymptTested = Adjust(SymptNot,SymptTested,totalPop)
+
+      case u < (lam1 + lam12 + lam2 + alpha1 + alpha2)/totLam:
+        AsymptNot,AsymptTested = Adjust(AsymptNot,AsymptTested,totalPop)
+
+      case u < (lam1 + lam12 + lam2 + alpha1 + alpha2 + alpha3)/totLam:
+        NonInfNot,NonInfTested = Adjust(NonInfNot,NonInfTested,totalPop)
+
+      }
+
+      dt = rand.ExpFloat64()/totLam
       simTime += dt
     }
     PosDay[i] = positive_interval
@@ -349,6 +505,12 @@ func main(){
   var smthness float64
   flag.Float64Var(&smthness,"Smoothing",5,"Guassian smoothing parameter for derivative estimation")
 
+  var totPop float64
+  flag.Float64Var(&totPop,"TotalPop",0,"Total population - leave 0 for infinite population/immediate retesting")
+
+  var retest float64
+  flag.Float64Var(&retest, "RetestRate", 1, "Rate of eligibility for retesting (1/time)")
+
   var numTri int
   flag.IntVar(&numTri,"Trials",1,"Number of trials for estimation")
 
@@ -427,7 +589,11 @@ func main(){
       performance := make([]DataPerformance,numTri)
       samps := make([]Samples,numTri)
       for trial := 0; trial < numTri; trial ++{
+        if totPop > 0{
+          sample_disase = GenerateSampleDataLimPop(dynamic_sim,test_caps,test_bias,falsepositive,falsenegative,daylength,totPop,retest)
+        }else{
         sample_disase = GenerateSampleData(dynamic_sim,test_caps,test_bias,falsepositive,falsenegative,daylength)
+        }
         pk1,pk2,pk3 := findPeak_smthD(sample_disase, dynamic_sim, smthness)
         comp := ComparePeaks(pk1,pk2,pk3,sample_disase)
         prec,rec := Performance(comp,ptol)
@@ -476,7 +642,11 @@ func main(){
       // fmt.Println("Avg Tests Per Day:", nm)
       // fmt.Println("\n")
       for trial := 0; trial < numTri; trial ++{
-        sample_disase = GenerateSampleData(dynamic_sim,test_caps,test_bias,falsepositive,falsenegative,daylength)
+        if totPop > 0{
+          sample_disase = GenerateSampleDataLimPop(dynamic_sim,test_caps,test_bias,falsepositive,falsenegative,daylength,totPop,retest)
+        }else{
+          sample_disase = GenerateSampleData(dynamic_sim,test_caps,test_bias,falsepositive,falsenegative,daylength)
+        }
         these_results[trial] = sample_disase
       }
       Results[nm] = these_results
