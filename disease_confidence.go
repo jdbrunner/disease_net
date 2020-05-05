@@ -592,7 +592,7 @@ func main(){
         if totPop > 0{
           sample_disase = GenerateSampleDataLimPop(dynamic_sim,test_caps,test_bias,falsepositive,falsenegative,daylength,totPop,retest)
         }else{
-        sample_disase = GenerateSampleData(dynamic_sim,test_caps,test_bias,falsepositive,falsenegative,daylength)
+          sample_disase = GenerateSampleData(dynamic_sim,test_caps,test_bias,falsepositive,falsenegative,daylength)
         }
         pk1,pk2,pk3 := findPeak_smthD(sample_disase, dynamic_sim, smthness)
         comp := ComparePeaks(pk1,pk2,pk3,sample_disase)

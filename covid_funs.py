@@ -129,6 +129,19 @@ def test_all_windows(data,times,windowsize,start = 0):
     while t<times[-1]:
         window_trend += [find_trend(data,times,[t,t+windowsize])]
         window_ending += [t+windowsize]
+        t += 1
+
+    return np.array(window_trend),np.array(window_ending)
+
+def test_independent_windows(data,times,windowsize,start = 0):
+    window_trend = []
+    window_ending = []
+
+    t = start
+
+    while t<times[-1]:
+        window_trend += [find_trend(data,times,[t,t+windowsize])]
+        window_ending += [t+windowsize]
         t += windowsize
 
     return np.array(window_trend),np.array(window_ending)
@@ -138,17 +151,32 @@ def trendError(realTrends,sampleTrends):
     sq_error = (np.array(realTrends) - np.array(sampleTrends))**2
     rt_mn_sq_error =np.sqrt(sum(sq_error)/len(realTrends))
     prod = np.array(realTrends)*np.array(sampleTrends)
-    same_sign_prob = sum([p > 0 for p in prod])/len(realTrends)
-    return sq_error,rt_mn_sq_error,same_sign_prob
+    same_sign = [p > 0 for p in prod]
+    same_sign_prob = sum(same_sign)/len(realTrends)
+    return sq_error,rt_mn_sq_error,same_sign_prob,same_sign
 
 def trendConfidence(samplevals,sampletimes,realvals,realtimes,windowsize):
     real_trend,_ = test_all_windows(realvals,realtimes,windowsize)
     tot = 0
+    confTFarr = []
+    sqrerrArr  = []
     for i in range(len(samplevals)):
-        samp_trend,_ = test_all_windows(samplevals[i],sampletimes[i],windowsize)
-        _,_,conf = trendError(real_trend,samp_trend)
+        samp_trend,window_end = test_all_windows(samplevals[i],sampletimes[i],windowsize)
+        sqerr,_,conf,confTF = trendError(real_trend,samp_trend)
         tot += conf
-    return tot/len(samplevals)
+        confTFarr += [confTF]
+        sqrerrArr += [sqerr]
+    confTFarr = np.array(confTFarr).astype(float)
+    sqrerrArr = np.array(sqrerrArr)
+    confTFsum = np.sum(confTFarr, axis = 0)
+    sqrerrSum = np.sum(sqrerrArr, axis = 0)
+    return tot/len(window_end),(confTFsum/len(window_end),window_end),(sqrerrSum/len(window_end),window_end)
+
+def trendConfidenceInd(samplevals,sampletimes,realvals,realtimes,windowsize):
+    real_trend,_ = test_independent_windows(realvals,realtimes,windowsize)
+    samp_trend,_ = test_independent_windows(samplevals,sampletimes,windowsize)
+    sqr,_,conf,_ = trendError(real_trend,samp_trend)
+    return conf,sqr
 
 
 #from https://www.endpoint.com/blog/2015/01/28/getting-realtime-output-using-python
